@@ -11,13 +11,12 @@ from celery.concurrency.prefork import TaskPool as PreforkPool
 from celery.schedules import crontab
 
 from app.config import settings
+from app.constants.celery_tasks import CeleryTask
 from app.extensions import collect_beat_schedule, collect_event_handlers, events, get_active_extensions
 from app.integrations.otel import init_otel, shutdown_otel
 from app.services import raw_payload_storage
 from app.utils.config_utils import LogFormat
 from app.utils.logging_setup import configure_logging
-
-_WEBHOOK_TASK = "emit_webhook_event_task.emit_webhook_event"
 
 
 class _WebhookTraceFilter(logging.Filter):
@@ -30,7 +29,7 @@ class _WebhookTraceFilter(logging.Filter):
         if record.levelno >= logging.ERROR:
             return True
         msg = record.getMessage()
-        return _WEBHOOK_TASK not in msg
+        return CeleryTask.EMIT_WEBHOOK_EVENT not in msg
 
 
 @signals.setup_logging.connect
@@ -137,7 +136,7 @@ def enqueue_startup_telemetry_ping(sender: Any, **kwargs) -> None:
         return
     try:
         sender.app.send_task(
-            "app.integrations.celery.tasks.telemetry_task.send_telemetry_ping",
+            CeleryTask.SEND_TELEMETRY_PING,
             kwargs={"event": "startup"},
             queue="default",
         )
@@ -196,12 +195,10 @@ def create_celery() -> Celery:
             "xml_sync": {},
         },
         task_routes={
-            "app.integrations.celery.tasks.process_sdk_upload_task.process_sdk_upload": {"queue": "sdk_sync"},
-            "app.integrations.celery.tasks.process_aws_upload_task.process_aws_upload": {"queue": "xml_sync"},
-            "app.integrations.celery.tasks.process_aws_upload_task.complete_and_process_aws_upload": {
-                "queue": "xml_sync"
-            },
-            "app.integrations.celery.tasks.process_xml_upload_task.process_xml_upload": {"queue": "xml_sync"},
+            CeleryTask.PROCESS_SDK_UPLOAD: {"queue": "sdk_sync"},
+            CeleryTask.PROCESS_AWS_UPLOAD: {"queue": "xml_sync"},
+            CeleryTask.COMPLETE_AND_PROCESS_AWS_UPLOAD: {"queue": "xml_sync"},
+            CeleryTask.PROCESS_XML_UPLOAD: {"queue": "xml_sync"},
         },
     )
 
@@ -220,25 +217,25 @@ def create_celery() -> Celery:
 
     celery_app.conf.beat_schedule = {
         "sync-all-users-periodic": {
-            "task": "app.integrations.celery.tasks.periodic_sync_task.sync_all_users",
+            "task": CeleryTask.SYNC_ALL_USERS,
             "schedule": float(settings.sync_interval_seconds),
             "args": (),  # No args - task calculates date range dynamically
             "kwargs": {"user_id": None},
         },
         "finalize-stale-sleeps-periodic": {
-            "task": "app.integrations.celery.tasks.finalize_stale_sleep_task.finalize_stale_sleeps",
+            "task": CeleryTask.FINALIZE_STALE_SLEEPS,
             "schedule": float(settings.sleep_sync_interval_seconds),
             "args": (),
             "kwargs": {},
         },
         "close-stale-sync-runs": {
-            "task": "app.integrations.celery.tasks.close_stale_sync_runs_task.close_stale_sync_runs",
+            "task": CeleryTask.CLOSE_STALE_SYNC_RUNS,
             "schedule": float(settings.sync_run_sweep_interval_seconds),
             "args": (),
             "kwargs": {},
         },
         "renew-oura-webhooks-monthly": {
-            "task": "app.integrations.celery.tasks.renew_oura_webhooks_task.renew_oura_webhooks",
+            "task": CeleryTask.RENEW_OURA_WEBHOOKS,
             "schedule": crontab(day_of_month=1, hour=0, minute=0),  # 1st of each month at 00:00 UTC
             "args": (),
             "kwargs": {},
@@ -247,7 +244,7 @@ def create_celery() -> Celery:
 
     if settings.data_lifecycle_enabled:
         celery_app.conf.beat_schedule["run-daily-archival"] = {
-            "task": "app.integrations.celery.tasks.archival_task.run_daily_archival",
+            "task": CeleryTask.RUN_DAILY_ARCHIVAL,
             "schedule": crontab(hour=3, minute=0),  # Daily at 03:00 UTC
             "args": (),
             "kwargs": {},
@@ -255,13 +252,13 @@ def create_celery() -> Celery:
 
     if settings.ow_scores_enabled:
         celery_app.conf.beat_schedule["fill-missing-sleep-scores"] = {
-            "task": "app.integrations.celery.tasks.fill_missing_sleep_scores_task.fill_missing_sleep_scores",
+            "task": CeleryTask.FILL_MISSING_SLEEP_SCORES,
             "schedule": float(settings.sleep_score_interval_seconds),
             "args": (),
             "kwargs": {},
         }
         celery_app.conf.beat_schedule["fill-missing-resilience-scores"] = {
-            "task": "app.integrations.celery.tasks.fill_missing_resilience_scores_task.fill_missing_resilience_scores",
+            "task": CeleryTask.FILL_MISSING_RESILIENCE_SCORES,
             "schedule": float(settings.resilience_score_interval_seconds),
             "args": (),
             "kwargs": {},
@@ -272,7 +269,7 @@ def create_celery() -> Celery:
         # ping per 24h (see TelemetryService) and the hourly cadence doubles as
         # the retry mechanism after failed deliveries.
         celery_app.conf.beat_schedule["send-telemetry-ping"] = {
-            "task": "app.integrations.celery.tasks.telemetry_task.send_telemetry_ping",
+            "task": CeleryTask.SEND_TELEMETRY_PING,
             "schedule": settings.telemetry_beat_interval_seconds,
             "args": (),
             "kwargs": {"event": "daily"},
@@ -282,7 +279,7 @@ def create_celery() -> Celery:
     events.register(event_handlers)
     if event_handlers:
         celery_app.conf.beat_schedule["dispatch-extension-events"] = {
-            "task": "app.integrations.celery.tasks.extension_events_task.dispatch_extension_events",
+            "task": CeleryTask.DISPATCH_EXTENSION_EVENTS,
             "schedule": float(settings.extension_event_sweep_interval_seconds),
         }
 
