@@ -1,22 +1,22 @@
 # Render blueprint for Nutree's Open Wearables STAGING stack.
 # Pinned to release 0.9.0 (see deploy/IMAGE_PIN.md). Production is a separate copy of this
-# stack (rename the ow-* prefix / env group, ENVIRONMENT=production) on the same tag.
+# stack (rename the nutree-ow-* prefix / env group, ENVIRONMENT=production) on the same tag.
 # Region matches the existing Nutree Render services (oregon).
 # Env vars follow https://openwearables.io/docs/deployment/docker (NOT the dev docker-compose.yml).
 # No secrets are committed: secrets are `sync: false` (entered in the dashboard) or generated.
 
 envVarGroups:
-  - name: ow-staging-shared
+  - name: nutree-ow-staging-shared
     envVars:
       - key: ENVIRONMENT
         value: staging
       - key: LOG_FORMAT
         value: json
-      - key: API_BASE_URL          # public ow-api URL, e.g. https://ow-api.onrender.com
+      - key: API_BASE_URL          # public nutree-ow-api URL, live staging: https://ow-api.onrender.com (hostname kept from before rename)
         sync: false
-      - key: FRONTEND_URL          # public ow-portal URL
+      - key: FRONTEND_URL          # public nutree-ow-portal URL
         sync: false
-      - key: CORS_ORIGINS          # JSON list, e.g. ["https://ow-portal.onrender.com"]
+      - key: CORS_ORIGINS          # JSON list, live staging: ["https://ow-portal.onrender.com"]
         sync: false
       # --- auth / admin seed ---
       - key: SECRET_KEY
@@ -87,7 +87,7 @@ envVarGroups:
 services:
   # API: public HTTPS. Exactly 1 instance - app.sh runs Alembic migrations + seeds on boot.
   - type: web
-    name: ow-api
+    name: nutree-ow-api
     runtime: image
     image:
       url: docker.io/themomentum/open-wearables-backend:0.9.0
@@ -101,25 +101,25 @@ services:
         value: "8000"
       - key: PORT
         value: "8000"
-      - fromGroup: ow-staging-shared
+      - fromGroup: nutree-ow-staging-shared
       - key: DB_HOST
-        fromDatabase: { name: ow-db, property: host }
+        fromDatabase: { name: nutree-ow-db, property: host }
       - key: DB_PORT
-        fromDatabase: { name: ow-db, property: port }
+        fromDatabase: { name: nutree-ow-db, property: port }
       - key: DB_NAME
-        fromDatabase: { name: ow-db, property: database }
+        fromDatabase: { name: nutree-ow-db, property: database }
       - key: DB_USER
-        fromDatabase: { name: ow-db, property: user }
+        fromDatabase: { name: nutree-ow-db, property: user }
       - key: DB_PASSWORD
-        fromDatabase: { name: ow-db, property: password }
+        fromDatabase: { name: nutree-ow-db, property: password }
       - key: REDIS_HOST
-        fromService: { type: keyvalue, name: ow-redis, property: host }
+        fromService: { type: keyvalue, name: nutree-ow-redis, property: host }
       - key: REDIS_PORT
-        fromService: { type: keyvalue, name: ow-redis, property: port }
+        fromService: { type: keyvalue, name: nutree-ow-redis, property: port }
 
   # Celery worker: private (background worker). Grace > 10s so running syncs finish on SIGTERM.
   - type: worker
-    name: ow-sync
+    name: nutree-ow-sync
     runtime: image
     image:
       url: docker.io/themomentum/open-wearables-backend:0.9.0
@@ -129,25 +129,25 @@ services:
     numInstances: 1
     maxShutdownDelaySeconds: 120
     envVars:
-      - fromGroup: ow-staging-shared
+      - fromGroup: nutree-ow-staging-shared
       - key: DB_HOST
-        fromDatabase: { name: ow-db, property: host }
+        fromDatabase: { name: nutree-ow-db, property: host }
       - key: DB_PORT
-        fromDatabase: { name: ow-db, property: port }
+        fromDatabase: { name: nutree-ow-db, property: port }
       - key: DB_NAME
-        fromDatabase: { name: ow-db, property: database }
+        fromDatabase: { name: nutree-ow-db, property: database }
       - key: DB_USER
-        fromDatabase: { name: ow-db, property: user }
+        fromDatabase: { name: nutree-ow-db, property: user }
       - key: DB_PASSWORD
-        fromDatabase: { name: ow-db, property: password }
+        fromDatabase: { name: nutree-ow-db, property: password }
       - key: REDIS_HOST
-        fromService: { type: keyvalue, name: ow-redis, property: host }
+        fromService: { type: keyvalue, name: nutree-ow-redis, property: host }
       - key: REDIS_PORT
-        fromService: { type: keyvalue, name: ow-redis, property: port }
+        fromService: { type: keyvalue, name: nutree-ow-redis, property: port }
 
   # Celery beat: private, exactly one instance (never scale - duplicate schedules).
   - type: worker
-    name: ow-scheduler
+    name: nutree-ow-scheduler
     runtime: image
     image:
       url: docker.io/themomentum/open-wearables-backend:0.9.0
@@ -157,25 +157,25 @@ services:
     numInstances: 1
     maxShutdownDelaySeconds: 30
     envVars:
-      - fromGroup: ow-staging-shared
+      - fromGroup: nutree-ow-staging-shared
       - key: DB_HOST
-        fromDatabase: { name: ow-db, property: host }
+        fromDatabase: { name: nutree-ow-db, property: host }
       - key: DB_PORT
-        fromDatabase: { name: ow-db, property: port }
+        fromDatabase: { name: nutree-ow-db, property: port }
       - key: DB_NAME
-        fromDatabase: { name: ow-db, property: database }
+        fromDatabase: { name: nutree-ow-db, property: database }
       - key: DB_USER
-        fromDatabase: { name: ow-db, property: user }
+        fromDatabase: { name: nutree-ow-db, property: user }
       - key: DB_PASSWORD
-        fromDatabase: { name: ow-db, property: password }
+        fromDatabase: { name: nutree-ow-db, property: password }
       - key: REDIS_HOST
-        fromService: { type: keyvalue, name: ow-redis, property: host }
+        fromService: { type: keyvalue, name: nutree-ow-redis, property: host }
       - key: REDIS_PORT
-        fromService: { type: keyvalue, name: ow-redis, property: port }
+        fromService: { type: keyvalue, name: nutree-ow-redis, property: port }
 
   # Developer portal (SvelteKit/Bun), port 3000.
   - type: web
-    name: ow-portal
+    name: nutree-ow-portal
     runtime: image
     image:
       url: docker.io/themomentum/open-wearables-frontend:0.9.0
@@ -185,14 +185,14 @@ services:
     envVars:
       - key: PORT
         value: "3000"
-      - key: VITE_API_URL        # public ow-api URL (same as API_BASE_URL)
+      - key: VITE_API_URL        # public nutree-ow-api URL (same as API_BASE_URL)
         sync: false
       # API_URL left unset -> defaults to VITE_API_URL.
 
   # Redis 8-compatible Key Value, private (no external access), AOF persistence
   # (Render Key Value persists with AOF on paid plans), noeviction for Celery.
   - type: keyvalue
-    name: ow-redis
+    name: nutree-ow-redis
     region: oregon
     plan: starter
     maxmemoryPolicy: noeviction
@@ -200,7 +200,7 @@ services:
 
 # Dedicated Postgres 18 for Open Wearables (NOT the meal Neon DB). Private: no external IPs.
 databases:
-  - name: ow-db
+  - name: nutree-ow-db
     databaseName: open_wearables
     user: open_wearables
     postgresMajorVersion: "18"
