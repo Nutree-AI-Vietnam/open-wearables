@@ -1,0 +1,209 @@
+# Render blueprint for Nutree's Open Wearables STAGING stack.
+# Pinned to release 0.9.0 (see deploy/IMAGE_PIN.md). Production is a separate copy of this
+# stack (rename the nutree-ow-stg-* prefix to nutree-ow-prod-* / env group, ENVIRONMENT=production) on the same tag.
+# Region matches the existing Nutree Render services (oregon).
+# Env vars follow https://openwearables.io/docs/deployment/docker (NOT the dev docker-compose.yml).
+# No secrets are committed: secrets are `sync: false` (entered in the dashboard) or generated.
+
+envVarGroups:
+  - name: nutree-ow-stg-shared
+    envVars:
+      - key: ENVIRONMENT
+        value: staging
+      - key: LOG_FORMAT
+        value: json
+      - key: API_BASE_URL          # public nutree-ow-stg-api URL, live staging: https://ow-api.onrender.com (hostname kept from before rename)
+        sync: false
+      - key: FRONTEND_URL          # public nutree-ow-stg-portal URL
+        sync: false
+      - key: CORS_ORIGINS          # JSON list, live staging: ["https://ow-portal.onrender.com"]
+        sync: false
+      # --- auth / admin seed ---
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # --- email (Resend or SMTP) ---
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM_ADDRESS
+        sync: false
+      # --- features explicitly off ---
+      - key: OUTGOING_WEBHOOKS_ENABLED   # Svix off (no svix-server deployed)
+        value: "false"
+      - key: RAW_PAYLOAD_STORAGE         # raw payload logs off
+        value: disabled
+      - key: SENTRY_SEND_SENSITIVE_DATA
+        value: "false"
+      - key: SENTRY_ENABLED
+        value: "false"                   # flip to true once SENTRY_DSN is set
+      - key: SENTRY_DSN
+        sync: false
+      - key: GOOGLE_LEGACY_OAUTH_PATH
+        value: "false"
+      - key: REDIS_SSL
+        value: "false"
+      # Fitbit is off: FITBIT_CLIENT_ID/SECRET intentionally not defined.
+      # --- provider OAuth (fill only the providers Nutree enables) ---
+      - key: GARMIN_CLIENT_ID
+        sync: false
+      - key: GARMIN_CLIENT_SECRET
+        sync: false
+      - key: OURA_CLIENT_ID
+        sync: false
+      - key: OURA_CLIENT_SECRET
+        sync: false
+      - key: WHOOP_CLIENT_ID
+        sync: false
+      - key: WHOOP_CLIENT_SECRET
+        sync: false
+      - key: POLAR_CLIENT_ID
+        sync: false
+      - key: POLAR_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_PROJECT_ID
+        sync: false
+      - key: WITHINGS_CLIENT_ID
+        sync: false
+      - key: WITHINGS_CLIENT_SECRET
+        sync: false
+      - key: WITHINGS_WEBHOOK_TOKEN
+        generateValue: true
+      - key: STRAVA_CLIENT_ID
+        sync: false
+      - key: STRAVA_CLIENT_SECRET
+        sync: false
+      - key: STRAVA_WEBHOOK_VERIFY_TOKEN
+        generateValue: true
+
+# DB/Redis wiring is repeated per backend service because fromDatabase/fromService
+# references are not allowed inside env groups.
+services:
+  # API: public HTTPS. Exactly 1 instance - app.sh runs Alembic migrations + seeds on boot.
+  - type: web
+    name: nutree-ow-stg-api
+    runtime: image
+    image:
+      url: docker.io/themomentum/open-wearables-backend:0.9.0
+    dockerCommand: scripts/start/app.sh
+    region: oregon
+    plan: starter
+    numInstances: 1
+    healthCheckPath: /openapi.json
+    envVars:
+      - key: API_PORT
+        value: "8000"
+      - key: PORT
+        value: "8000"
+      - fromGroup: nutree-ow-stg-shared
+      - key: DB_HOST
+        fromDatabase: { name: nutree-ow-stg-db, property: host }
+      - key: DB_PORT
+        fromDatabase: { name: nutree-ow-stg-db, property: port }
+      - key: DB_NAME
+        fromDatabase: { name: nutree-ow-stg-db, property: database }
+      - key: DB_USER
+        fromDatabase: { name: nutree-ow-stg-db, property: user }
+      - key: DB_PASSWORD
+        fromDatabase: { name: nutree-ow-stg-db, property: password }
+      - key: REDIS_HOST
+        fromService: { type: keyvalue, name: nutree-ow-stg-redis, property: host }
+      - key: REDIS_PORT
+        fromService: { type: keyvalue, name: nutree-ow-stg-redis, property: port }
+
+  # Celery worker: private (background worker). Grace > 10s so running syncs finish on SIGTERM.
+  - type: worker
+    name: nutree-ow-stg-sync
+    runtime: image
+    image:
+      url: docker.io/themomentum/open-wearables-backend:0.9.0
+    dockerCommand: scripts/start/worker.sh
+    region: oregon
+    plan: starter
+    numInstances: 1
+    maxShutdownDelaySeconds: 120
+    envVars:
+      - fromGroup: nutree-ow-stg-shared
+      - key: DB_HOST
+        fromDatabase: { name: nutree-ow-stg-db, property: host }
+      - key: DB_PORT
+        fromDatabase: { name: nutree-ow-stg-db, property: port }
+      - key: DB_NAME
+        fromDatabase: { name: nutree-ow-stg-db, property: database }
+      - key: DB_USER
+        fromDatabase: { name: nutree-ow-stg-db, property: user }
+      - key: DB_PASSWORD
+        fromDatabase: { name: nutree-ow-stg-db, property: password }
+      - key: REDIS_HOST
+        fromService: { type: keyvalue, name: nutree-ow-stg-redis, property: host }
+      - key: REDIS_PORT
+        fromService: { type: keyvalue, name: nutree-ow-stg-redis, property: port }
+
+  # Celery beat: private, exactly one instance (never scale - duplicate schedules).
+  - type: worker
+    name: nutree-ow-stg-scheduler
+    runtime: image
+    image:
+      url: docker.io/themomentum/open-wearables-backend:0.9.0
+    dockerCommand: scripts/start/beat.sh
+    region: oregon
+    plan: starter
+    numInstances: 1
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - fromGroup: nutree-ow-stg-shared
+      - key: DB_HOST
+        fromDatabase: { name: nutree-ow-stg-db, property: host }
+      - key: DB_PORT
+        fromDatabase: { name: nutree-ow-stg-db, property: port }
+      - key: DB_NAME
+        fromDatabase: { name: nutree-ow-stg-db, property: database }
+      - key: DB_USER
+        fromDatabase: { name: nutree-ow-stg-db, property: user }
+      - key: DB_PASSWORD
+        fromDatabase: { name: nutree-ow-stg-db, property: password }
+      - key: REDIS_HOST
+        fromService: { type: keyvalue, name: nutree-ow-stg-redis, property: host }
+      - key: REDIS_PORT
+        fromService: { type: keyvalue, name: nutree-ow-stg-redis, property: port }
+
+  # Developer portal (SvelteKit/Bun), port 3000.
+  - type: web
+    name: nutree-ow-stg-portal
+    runtime: image
+    image:
+      url: docker.io/themomentum/open-wearables-frontend:0.9.0
+    region: oregon
+    plan: starter
+    numInstances: 1
+    envVars:
+      - key: PORT
+        value: "3000"
+      - key: VITE_API_URL        # public nutree-ow-stg-api URL (same as API_BASE_URL)
+        sync: false
+      # API_URL left unset -> defaults to VITE_API_URL.
+
+  # Redis 8-compatible Key Value, private (no external access), AOF persistence
+  # (Render Key Value persists with AOF on paid plans), noeviction for Celery.
+  - type: keyvalue
+    name: nutree-ow-stg-redis
+    region: oregon
+    plan: starter
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+# Dedicated Postgres 18 for Open Wearables (NOT the meal Neon DB). Private: no external IPs.
+databases:
+  - name: nutree-ow-stg-db
+    databaseName: open_wearables
+    user: open_wearables
+    postgresMajorVersion: "18"
+    region: oregon
+    plan: basic-256mb
+    ipAllowList: []
